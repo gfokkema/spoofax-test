@@ -2,7 +2,6 @@ package test;
 
 import java.io.IOException;
 import java.net.URL;
-import java.util.Collection;
 import java.util.Set;
 
 import org.apache.commons.vfs2.FileObject;
@@ -21,7 +20,6 @@ import org.metaborg.spoofax.core.Spoofax;
 import org.metaborg.spoofax.core.unit.ISpoofaxAnalyzeUnit;
 import org.metaborg.spoofax.core.unit.ISpoofaxInputUnit;
 import org.metaborg.spoofax.core.unit.ISpoofaxParseUnit;
-import org.metaborg.spoofax.core.unit.ISpoofaxTransformUnit;
 import org.metaborg.util.concurrent.IClosableLock;
 
 public class SpoofaxTest {
@@ -29,7 +27,7 @@ public class SpoofaxTest {
 //	final static String sourcePath = "test.nabl";
 	final static String langPath = "paplj.full";
 	final static String sourcePath = "fib.pj";
-	final static String projectPath = "~/spoofax-workspace/declare-your-language/paplj/paplj-examples";
+	final static String projectPath = "/home/gerlof/spoofax-workspace/declare-your-language/paplj/paplj-examples";
 	
 	public static void main(String[] args) {
 		try(final Spoofax spoofax = new Spoofax()) {
@@ -50,13 +48,15 @@ public class SpoofaxTest {
 		try(IClosableLock lock = context.write()) {
 			analyze = spoofax.analysisService.analyze(parse_out, context).result();
 		}
-		Collection<ISpoofaxTransformUnit<ISpoofaxAnalyzeUnit>> transform = spoofax.transformService.transform(analyze, context, new EndNamedGoal("Run"));
-		transform.forEach(t -> System.out.println(t.ast()));
+		
+		spoofax.transformService
+			.transform(analyze, context, new EndNamedGoal("Run"))
+			.forEach(t -> System.out.println(t.ast()));
 	}
 	
 	private IProject project(Spoofax spoofax) throws MetaborgException {
 		ISimpleProjectService projectService = spoofax.injector.getInstance(SimpleProjectService.class);
-		FileObject projectLocation = spoofax.resourceService.resolve(projectPath);
+ 		FileObject projectLocation = spoofax.resourceService.resolve(projectPath);
 		IProject project = projectService.create(projectLocation);
 		
 		return project;
