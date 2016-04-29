@@ -2,10 +2,12 @@ package test;
 
 import java.io.IOException;
 import java.net.URL;
+import java.util.Collection;
 import java.util.Set;
 
 import org.apache.commons.vfs2.FileObject;
 import org.metaborg.core.MetaborgException;
+import org.metaborg.core.action.EndNamedGoal;
 import org.metaborg.core.context.IContext;
 import org.metaborg.core.language.ILanguageComponent;
 import org.metaborg.core.language.ILanguageDiscoveryRequest;
@@ -19,6 +21,8 @@ import org.metaborg.spoofax.core.Spoofax;
 import org.metaborg.spoofax.core.unit.ISpoofaxAnalyzeUnit;
 import org.metaborg.spoofax.core.unit.ISpoofaxInputUnit;
 import org.metaborg.spoofax.core.unit.ISpoofaxParseUnit;
+import org.metaborg.spoofax.core.unit.ISpoofaxTransformUnit;
+import org.metaborg.util.concurrent.IClosableLock;
 
 public class SpoofaxTest {
 //	final static String langPath = "org.metaborg.meta.lang.nabl-2.0.0-beta1.spoofax-language";
@@ -29,32 +33,33 @@ public class SpoofaxTest {
 	
 	public static void main(String[] args) {
 		try(final Spoofax spoofax = new Spoofax()) {
-			SpoofaxTest test = new SpoofaxTest();
-			
-			IProject project = test.project(spoofax);
-			ILanguageImpl lang = test.lang(spoofax);
-			if(lang == null) {
-				System.out.println("No language implementation was found");
-				return;
-			}
-			ISpoofaxParseUnit output = test.load(spoofax, lang);
-			System.out.println("Parsed: " + output.ast());
-			
-			IContext context = spoofax.contextService.get(output.source(), project, lang);
-			ISpoofaxAnalyzeUnit analyze = spoofax.analysisService.analyze(output, context).result();
-//			Collection<ISpoofaxTransformUnit<ISpoofaxAnalyzeUnit>> transform = spoofax.transformService.transform(analyze, context, new EndNamedGoal("Run"));
-//			
-//			System.out.println(transform);
+			new SpoofaxTest().run(spoofax);
 		} catch(MetaborgException | IOException e) {
 			e.printStackTrace();
 		}
 	}
 	
+	public void run(Spoofax spoofax) throws MetaborgException, IOException {
+		IProject project = this.project(spoofax);
+		ILanguageImpl lang = this.lang(spoofax);
+		
+		ISpoofaxParseUnit parse_out = this.parse(spoofax, lang);
+		IContext context = spoofax.contextService.get(parse_out.source(), project, lang);
+		
+		ISpoofaxAnalyzeUnit analyze;
+		try(IClosableLock lock = context.write()) {
+			analyze = spoofax.analysisService.analyze(parse_out, context).result();
+		}
+		Collection<ISpoofaxTransformUnit<ISpoofaxAnalyzeUnit>> transform = spoofax.transformService.transform(analyze, context, new EndNamedGoal("Run"));
+		transform.forEach(t -> System.out.println(t.ast()));
+	}
+	
 	private IProject project(Spoofax spoofax) throws MetaborgException {
 		ISimpleProjectService projectService = spoofax.injector.getInstance(SimpleProjectService.class);
 		FileObject projectLocation = spoofax.resourceService.resolve(projectPath);
+		IProject project = projectService.create(projectLocation);
 		
-		return projectService.create(projectLocation);
+		return project;
 	}
 	
 	private ILanguageImpl lang(Spoofax spoofax) throws MetaborgException {
@@ -63,18 +68,20 @@ public class SpoofaxTest {
 		FileObject langLocation = spoofax.resourceService.resolve("zip:" + langUrl + "!/");
 
 		// Discover languages inside zip file
-		Iterable<ILanguageDiscoveryRequest> requests =
-				spoofax.languageDiscoveryService.request(langLocation);
-		Iterable<ILanguageComponent> components =
-				spoofax.languageDiscoveryService.discover(requests);
+		Iterable<ILanguageDiscoveryRequest> requests = spoofax.languageDiscoveryService.request(langLocation);
+		Iterable<ILanguageComponent> components = spoofax.languageDiscoveryService.discover(requests);
 
 		// Load the languages
-		Set<ILanguageImpl> implementations = LanguageUtils.toImpls(components);
+		Set<ILanguageImpl> impls = LanguageUtils.toImpls(components);
+		ILanguageImpl lang = LanguageUtils.active(impls);
+		if(lang == null) {
+			throw new MetaborgException("No language implementation was found");
+		}
 		
-		return LanguageUtils.active(implementations);
+		return lang;
 	}
 	
-	private ISpoofaxParseUnit load(Spoofax spoofax, ILanguageImpl lang) throws IOException, ParseException {
+	private ISpoofaxParseUnit parse(Spoofax spoofax, ILanguageImpl lang) throws IOException, ParseException {
 		// Load a file in this language
 		FileObject sourceFile    = spoofax.resourceService.resolve("res:" + sourcePath);
 		String sourceContents    = spoofax.sourceTextService.text(sourceFile);
@@ -84,6 +91,7 @@ public class SpoofaxTest {
 		ISpoofaxParseUnit output = spoofax.syntaxService.parse(input);
 		if(!output.valid()) throw new IOException("Could not parse " + sourceFile);
 		
+		System.out.println("Parsed: " + output.ast());
 		return output;
 	}
 }
