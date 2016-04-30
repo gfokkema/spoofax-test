@@ -10,6 +10,7 @@ import java.util.stream.StreamSupport;
 
 import org.apache.commons.vfs2.FileObject;
 import org.metaborg.core.MetaborgException;
+import org.metaborg.core.action.EndNamedGoal;
 import org.metaborg.core.context.IContext;
 import org.metaborg.core.language.ILanguageComponent;
 import org.metaborg.core.language.ILanguageDiscoveryRequest;
@@ -66,10 +67,11 @@ public class SpoofaxTest {
 		}
 		
 		List<String> goals = Arrays.asList("Show abstract syntax", "Desugar AST", "Run");
+		Iterable<ActionFacet> facets = lang.facets(ActionFacet.class);
 		
-		StreamSupport.stream(lang.facets(ActionFacet.class).spliterator(), false)
-			.flatMap(af -> af.actions.entries().stream())
-			.map(entry -> entry.getKey())
+		StreamSupport.stream(facets.spliterator(), true)
+			.flatMap(af -> af.actions.keySet().stream())
+			.filter(goal -> goal instanceof EndNamedGoal)
 			.filter(goal ->
 				goals.stream()
 					.map(e -> "'" + e + "'")
@@ -89,7 +91,8 @@ public class SpoofaxTest {
 			})
 			.map(term -> term.ast())
 			.collect(Collectors.toList())
-			.forEach(System.out::println);
+			.forEach(System.out::println)
+			;
 	}
 	
 	public IProject project(FileObject projectLoc) throws MetaborgException {
