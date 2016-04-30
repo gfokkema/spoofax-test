@@ -1,12 +1,15 @@
 package test;
 
 import java.io.IOException;
-import java.net.URL;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 import org.apache.commons.vfs2.FileObject;
 import org.metaborg.core.MetaborgException;
-import org.metaborg.core.action.EndNamedGoal;
 import org.metaborg.core.context.IContext;
 import org.metaborg.core.language.ILanguageComponent;
 import org.metaborg.core.language.ILanguageDiscoveryRequest;
@@ -15,11 +18,13 @@ import org.metaborg.core.language.LanguageUtils;
 import org.metaborg.core.project.IProject;
 import org.metaborg.core.project.ISimpleProjectService;
 import org.metaborg.core.project.SimpleProjectService;
-import org.metaborg.core.syntax.ParseException;
+import org.metaborg.core.transform.TransformException;
 import org.metaborg.spoofax.core.Spoofax;
+import org.metaborg.spoofax.core.action.ActionFacet;
 import org.metaborg.spoofax.core.unit.ISpoofaxAnalyzeUnit;
 import org.metaborg.spoofax.core.unit.ISpoofaxInputUnit;
 import org.metaborg.spoofax.core.unit.ISpoofaxParseUnit;
+import org.metaborg.spoofax.core.unit.ISpoofaxTransformUnit;
 import org.metaborg.util.concurrent.IClosableLock;
 
 public class SpoofaxTest {
@@ -29,19 +34,30 @@ public class SpoofaxTest {
 	final static String sourcePath = "fib.pj";
 	final static String projectPath = "/home/gerlof/spoofax-workspace/declare-your-language/paplj/paplj-examples";
 	
-	public static void main(String[] args) {
-		try(final Spoofax spoofax = new Spoofax()) {
-			new SpoofaxTest().run(spoofax);
-		} catch(MetaborgException | IOException e) {
-			e.printStackTrace();
-		}
+	private Spoofax spoofax;
+	
+	public SpoofaxTest(Spoofax spoofax) {
+		this.spoofax = spoofax;
 	}
 	
-	public void run(Spoofax spoofax) throws MetaborgException, IOException {
-		IProject project = this.project(spoofax);
-		ILanguageImpl lang = this.lang(spoofax);
+	private FileObject langLoc() {
+		FileObject zipLoc = spoofax.resourceService.resolve("res:" + langPath);
+		return spoofax.resourceService.resolve("zip:" + zipLoc + "!/");
+	}
+	
+	private FileObject sourceLoc() {
+		return spoofax.resourceService.resolve("res:" + sourcePath);
+	}
+	
+	private FileObject projectLoc() {
+		return spoofax.resourceService.resolve(projectPath);
+	}
+	
+	public void run() throws MetaborgException, IOException {
+		IProject project = this.project(projectLoc());
+		ILanguageImpl lang = this.lang(langLoc());
 		
-		ISpoofaxParseUnit parse_out = this.parse(spoofax, lang);
+		ISpoofaxParseUnit parse_out = this.parse(lang, sourceLoc());
 		IContext context = spoofax.contextService.get(parse_out.source(), project, lang);
 		
 		ISpoofaxAnalyzeUnit analyze;
@@ -49,49 +65,70 @@ public class SpoofaxTest {
 			analyze = spoofax.analysisService.analyze(parse_out, context).result();
 		}
 		
-		spoofax.transformService
-			.transform(analyze, context, new EndNamedGoal("Run"))
-			.forEach(t -> System.out.println(t.ast()));
+		List<String> goals = Arrays.asList("Show abstract syntax", "Desugar AST", "Run");
+		
+		StreamSupport.stream(lang.facets(ActionFacet.class).spliterator(), false)
+			.flatMap(af -> af.actions.entries().stream())
+			.map(entry -> entry.getKey())
+			.filter(goal ->
+				goals.stream()
+					.map(e -> "'" + e + "'")
+					.map(e -> goal.toString().equals(e))
+					.reduce(false, (a, b) -> a || b)
+			)
+			.flatMap(goal -> {
+				Stream<ISpoofaxTransformUnit<ISpoofaxAnalyzeUnit>> term = null;
+				try {
+					term = spoofax.transformService
+						.transform(analyze, context, goal)
+						.stream();
+				} catch (TransformException e) {
+					e.printStackTrace();
+				}
+				return term;
+			})
+			.map(term -> term.ast())
+			.collect(Collectors.toList())
+			.forEach(System.out::println);
 	}
 	
-	private IProject project(Spoofax spoofax) throws MetaborgException {
+	public IProject project(FileObject projectLoc) throws MetaborgException {
 		ISimpleProjectService projectService = spoofax.injector.getInstance(SimpleProjectService.class);
- 		FileObject projectLocation = spoofax.resourceService.resolve(projectPath);
-		IProject project = projectService.create(projectLocation);
+		IProject project = projectService.create(projectLoc);
 		
 		return project;
 	}
 	
-	private ILanguageImpl lang(Spoofax spoofax) throws MetaborgException {
-		// Load zip file given by path
-		URL langUrl = SpoofaxTest.class.getClassLoader().getResource(langPath);
-		FileObject langLocation = spoofax.resourceService.resolve("zip:" + langUrl + "!/");
-
+	public ILanguageImpl lang(FileObject langLoc) throws MetaborgException {
 		// Discover languages inside zip file
-		Iterable<ILanguageDiscoveryRequest> requests = spoofax.languageDiscoveryService.request(langLocation);
+		Iterable<ILanguageDiscoveryRequest> requests = spoofax.languageDiscoveryService.request(langLoc);
 		Iterable<ILanguageComponent> components = spoofax.languageDiscoveryService.discover(requests);
 
 		// Load the languages
 		Set<ILanguageImpl> impls = LanguageUtils.toImpls(components);
 		ILanguageImpl lang = LanguageUtils.active(impls);
-		if(lang == null) {
-			throw new MetaborgException("No language implementation was found");
-		}
+		if(lang == null) throw new MetaborgException("No language implementation was found");
 		
 		return lang;
 	}
 	
-	private ISpoofaxParseUnit parse(Spoofax spoofax, ILanguageImpl lang) throws IOException, ParseException {
+	public ISpoofaxParseUnit parse(ILanguageImpl lang, FileObject sourceFile) throws IOException, MetaborgException {
 		// Load a file in this language
-		FileObject sourceFile    = spoofax.resourceService.resolve("res:" + sourcePath);
 		String sourceContents    = spoofax.sourceTextService.text(sourceFile);
 		ISpoofaxInputUnit input  = spoofax.unitService.inputUnit(sourceFile, sourceContents, lang, null);
 		
 		// Parse it using Spoofax
 		ISpoofaxParseUnit output = spoofax.syntaxService.parse(input);
-		if(!output.valid()) throw new IOException("Could not parse " + sourceFile);
+		if(!output.valid()) throw new MetaborgException("Could not parse " + sourceFile);
 		
-		System.out.println("Parsed: " + output.ast());
 		return output;
+	}
+	
+	public static void main(String[] args) {
+		try(Spoofax spoofax = new Spoofax()) {
+			new SpoofaxTest(spoofax).run();
+		} catch (IOException | MetaborgException e) {
+			e.printStackTrace();
+		}
 	}
 }
