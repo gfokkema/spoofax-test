@@ -1,12 +1,8 @@
 package test;
 
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.List;
+import java.util.Collection;
 import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 
 import org.apache.commons.vfs2.FileObject;
 import org.metaborg.core.MetaborgException;
@@ -21,12 +17,11 @@ import org.metaborg.core.project.ISimpleProjectService;
 import org.metaborg.core.project.SimpleProjectService;
 import org.metaborg.core.transform.TransformException;
 import org.metaborg.spoofax.core.Spoofax;
-import org.metaborg.spoofax.core.action.ActionFacet;
 import org.metaborg.spoofax.core.unit.ISpoofaxAnalyzeUnit;
 import org.metaborg.spoofax.core.unit.ISpoofaxInputUnit;
-import org.metaborg.spoofax.core.unit.ISpoofaxParseUnit;
 import org.metaborg.spoofax.core.unit.ISpoofaxTransformUnit;
-import org.metaborg.util.concurrent.IClosableLock;
+
+import rx.Observable;
 
 public class SpoofaxTest {
 //	final static String langPath = "org.metaborg.meta.lang.nabl-2.0.0-beta1.spoofax-language";
@@ -57,41 +52,30 @@ public class SpoofaxTest {
 	public void run() throws MetaborgException, IOException {
 		IProject project = this.project(projectLoc());
 		ILanguageImpl lang = this.lang(langLoc());
+		IContext context = spoofax.contextService.get(sourceLoc(), project, lang);
 		
-		ISpoofaxParseUnit parse_out = this.parse(lang, sourceLoc());
-		IContext context = spoofax.contextService.get(parse_out.source(), project, lang);
+//		List<String> goals = Arrays.asList("Show abstract syntax", "Desugar AST", "Run");
+//		Iterable<ActionFacet> facets = lang.facets(ActionFacet.class);
 		
-		ISpoofaxAnalyzeUnit analyze;
-		try(IClosableLock lock = context.write()) {
-			analyze = spoofax.analysisService.analyze(parse_out, context).result();
-		}
+		String source = spoofax.sourceTextService.text(sourceLoc());
+		ISpoofaxInputUnit input = spoofax.unitService.inputUnit(sourceLoc(), source, lang, null);
 		
-		List<String> goals = Arrays.asList("Show abstract syntax", "Desugar AST", "Run");
-		Iterable<ActionFacet> facets = lang.facets(ActionFacet.class);
-		
-		StreamSupport.stream(facets.spliterator(), true)
-			.flatMap(af -> af.actions.keySet().stream())
-			.filter(goal -> goal instanceof EndNamedGoal)
-			.filter(goal ->
-				goals.stream()
-					.map(e -> "'" + e + "'")
-					.map(e -> goal.toString().equals(e))
-					.reduce(false, (a, b) -> a || b)
-			)
-			.flatMap(goal -> {
-				Stream<ISpoofaxTransformUnit<ISpoofaxAnalyzeUnit>> term = null;
+		spoofax.analysisResultProcessor
+			.request(input, context)
+			.doOnNext(analysis -> System.out.println("Analyze: " + analysis.ast()))
+			.flatMap(analysis -> {
+				Collection<ISpoofaxTransformUnit<ISpoofaxAnalyzeUnit>> terms = null;
 				try {
-					term = spoofax.transformService
-						.transform(analyze, context, goal)
-						.stream();
+					terms = spoofax.transformService
+							.transform(analysis, context, new EndNamedGoal("Run"));
 				} catch (TransformException e) {
 					e.printStackTrace();
 				}
-				return term;
+				return Observable.from(terms);
 			})
 			.map(term -> term.ast())
-			.collect(Collectors.toList())
-			.forEach(System.out::println)
+			.doOnNext(term -> System.out.println("Result: " + term))
+			.subscribe()
 			;
 	}
 	
@@ -113,18 +97,6 @@ public class SpoofaxTest {
 		if(lang == null) throw new MetaborgException("No language implementation was found");
 		
 		return lang;
-	}
-	
-	public ISpoofaxParseUnit parse(ILanguageImpl lang, FileObject sourceFile) throws IOException, MetaborgException {
-		// Load a file in this language
-		String sourceContents    = spoofax.sourceTextService.text(sourceFile);
-		ISpoofaxInputUnit input  = spoofax.unitService.inputUnit(sourceFile, sourceContents, lang, null);
-		
-		// Parse it using Spoofax
-		ISpoofaxParseUnit output = spoofax.syntaxService.parse(input);
-		if(!output.valid()) throw new MetaborgException("Could not parse " + sourceFile);
-		
-		return output;
 	}
 	
 	public static void main(String[] args) {
