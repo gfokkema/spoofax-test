@@ -32,8 +32,8 @@ public class SpoofaxTest {
 //	final static String langPath = "org.metaborg.meta.lang.nabl-2.0.0-beta1.spoofax-language";
 //	final static String sourcePath = "test.nabl";
 	final static String langPath = "paplj.full";
-	final static String sourcePath = "fib.pj";
-	final static String projectPath = "/home/gerlof/spoofax-workspace/declare-your-language/paplj/paplj-examples";
+	final static String sourcePath = "/home/gerlof/spoofax-workspace/temp/fib.pj";
+	final static String projectPath = "/home/gerlof/spoofax-workspace/temp/";
 	
 	private Spoofax spoofax;
 	
@@ -47,7 +47,7 @@ public class SpoofaxTest {
 	}
 	
 	private FileObject sourceLoc() {
-		return spoofax.resourceService.resolve("res:" + sourcePath);
+		return spoofax.resourceService.resolve("file:" + sourcePath);
 	}
 	
 	private FileObject projectLoc() {
@@ -57,42 +57,19 @@ public class SpoofaxTest {
 	public void run() throws MetaborgException, IOException {
 		IProject project = this.project(projectLoc());
 		ILanguageImpl lang = this.lang(langLoc());
+		IContext context = spoofax.contextService.get(projectLoc(), project, lang);
 		
 		ISpoofaxParseUnit parse_out = this.parse(lang, sourceLoc());
-		IContext context = spoofax.contextService.get(parse_out.source(), project, lang);
-		
 		ISpoofaxAnalyzeUnit analyze;
 		try(IClosableLock lock = context.write()) {
 			analyze = spoofax.analysisService.analyze(parse_out, context).result();
 		}
+		// AST has been parsed and analyzed
 		
-		List<String> goals = Arrays.asList("Show abstract syntax", "Desugar AST", "Run");
-		Iterable<ActionFacet> facets = lang.facets(ActionFacet.class);
-		
-		StreamSupport.stream(facets.spliterator(), true)
-			.flatMap(af -> af.actions.keySet().stream())
-			.filter(goal -> goal instanceof EndNamedGoal)
-			.filter(goal ->
-				goals.stream()
-					.map(e -> "'" + e + "'")
-					.map(e -> goal.toString().equals(e))
-					.reduce(false, (a, b) -> a || b)
-			)
-			.flatMap(goal -> {
-				Stream<ISpoofaxTransformUnit<ISpoofaxAnalyzeUnit>> term = null;
-				try {
-					term = spoofax.transformService
-						.transform(analyze, context, goal)
-						.stream();
-				} catch (TransformException e) {
-					e.printStackTrace();
-				}
-				return term;
-			})
-			.map(term -> term.ast())
-			.collect(Collectors.toList())
-			.forEach(System.out::println)
-			;
+		StreamSupport.stream(spoofax.strategoCommon
+				.invoke(lang, context, analyze.ast(), "runprogram").spliterator(), false)
+			.map(e -> "direct interp: " + e.toString())
+			.forEach(System.out::println);
 	}
 	
 	public IProject project(FileObject projectLoc) throws MetaborgException {
