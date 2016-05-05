@@ -17,9 +17,17 @@ public interface Editor {
 	public void setPrompt(String promptString);
 
 	/**
+	 * Set the REPL prompt for a continued input on a new line.
+	 * TODO: Should this just be in a {@link TerminalEditor}?
+	 * @param promptString
+	 */
+	public void setContinuationPrompt(String promptString);
+
+	/**
 	 * Get the input from the user, optionally spanning multiple lines.
 	 * @return The input typed in by the user.
 	 * @throws IOException 
 	 */
 	public String getInput() throws IOException;
+
 }

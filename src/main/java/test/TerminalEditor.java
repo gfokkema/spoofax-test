@@ -1,19 +1,13 @@
 package test;
 
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 
-import org.fusesource.jansi.Ansi.Color;
-
 import static org.fusesource.jansi.Ansi.ansi;
 
 import jline.console.ConsoleReader;
-import jline.console.CursorBuffer;
-import jline.console.KeyMap;
 
 /**
  * An Editor in a terminal.
@@ -25,74 +19,59 @@ public class TerminalEditor implements Editor {
 	public static final String KEY_ENTER = "\n";
 	public static final String KEY_UP = "\033[A";
 	public static final String KEY_DOWN = "\033[B";
+	String prompt;
+	String continuationPrompt;
 	ArrayList<String> lines;
-	int currentLineIndex;
 
 	private TerminalEditor() throws IOException {
 		this(System.in, System.out);
 	}
 
 	public TerminalEditor(InputStream in, OutputStream out) throws IOException {
-		reader = new ConsoleReader();
+		reader = new ConsoleReader(in, out);
 		reader.setExpandEvents(false);
 		reader.setHandleUserInterrupt(true);
 		reader.setBellEnabled(true);
-		setPrompt("> ");
-		registerKeyBindings();
+		setPrompt(">>> ");
+		setContinuationPrompt("... ");
 		lines = new ArrayList<>();
-		currentLineIndex = 0;
-	}
-
-	private void registerKeyBindings() {
-		bind(KEY_LF, this::commandBreakLine);
-		bind(KEY_ENTER, this::commandBreakLine);
-		bind(KEY_UP, this::commandPreviousLine);
 	}
 	
-	private void saveEditedLine() {
-		CursorBuffer buff = reader.getCursorBuffer();
-
-	}
-
-	private void commandBreakLine(ActionEvent evt) {
-		try {
-			if (reader.getCursorBuffer().buffer.length() == 0) {
-					reader.accept();
-					return;
-			}
-			reader.println();
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-	}
-
-	private void commandPreviousLine(ActionEvent evt) {
-		try {
-			reader.println(ansi().cursorUp(1).reset().toString());
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-	}
-
-	private void bind(String keySeq, ActionListener action) {
-		KeyMap keys = reader.getKeys();
-		keys.bind(keySeq, action);
+	private void saveLine(String lastLine) {
+		lines.add(lastLine);
 	}
 
 	@Override
 	public void setPrompt(String promptString) {
-		reader.setPrompt(promptString);
+		prompt = promptString;
+	}
+
+	@Override
+	public void setContinuationPrompt(String promptString) {
+		continuationPrompt = promptString;
 	}
 
 	@Override
 	public String getInput() throws IOException {
-		return reader.readLine();
+		String input;
+		String lastLine;
+		reader.setPrompt(prompt);
+		// While the input is not empty, keep asking.
+		while ((lastLine = reader.readLine()).trim().length() > 0) {
+			reader.flush();
+			reader.setPrompt(continuationPrompt);
+			saveLine(lastLine);
+		}
+		// Concat the strings with newlines inbetween
+		input = lines.stream().reduce("", (left, right) -> left + right + "\n");
+		// Clear the lines for next input.
+		lines.clear();
+		return input;
 	}
 
 	public static void main(String[] args) throws IOException {
-		System.out.println(ansi().fg(Color.CYAN).a("Hi").reset().a(" everyone!"));
+		System.out.println(ansi().a("Welcome to the ").bold().a("Spoofax").reset().a(" REPL"));
 		Editor ed = new TerminalEditor(); 
-		ed.setPrompt("Balletie $ ");
 		String input = ed.getInput();
 		System.out.println("User typed in \"" + input + '"');
 	}
