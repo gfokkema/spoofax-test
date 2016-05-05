@@ -2,6 +2,7 @@ package test;
 
 import org.apache.commons.vfs2.FileObject;
 import org.metaborg.core.MetaborgException;
+import org.metaborg.core.analysis.IAnalyzeResult;
 import org.metaborg.core.context.IContext;
 import org.metaborg.core.language.FacetContribution;
 import org.metaborg.core.language.ILanguageComponent;
@@ -13,20 +14,17 @@ import org.metaborg.core.project.ISimpleProjectService;
 import org.metaborg.core.project.SimpleProjectService;
 import org.metaborg.core.syntax.ParseException;
 import org.metaborg.spoofax.core.Spoofax;
-import org.metaborg.spoofax.core.analysis.AnalysisFacet;
 import org.metaborg.spoofax.core.stratego.StrategoRuntimeFacet;
+import org.metaborg.spoofax.core.unit.ISpoofaxAnalyzeUnit;
+import org.metaborg.spoofax.core.unit.ISpoofaxAnalyzeUnitUpdate;
 import org.metaborg.spoofax.core.unit.ISpoofaxInputUnit;
 import org.metaborg.spoofax.core.unit.ISpoofaxParseUnit;
 import org.metaborg.util.concurrent.IClosableLock;
 import org.spoofax.interpreter.terms.IStrategoTerm;
-import org.spoofax.interpreter.terms.ITermFactory;
 import org.strategoxt.HybridInterpreter;
 
 import java.io.IOException;
-import java.util.Arrays;
 import java.util.Set;
-
-import static java.util.stream.StreamSupport.stream;
 
 /**
  * Test class to play around with Spoofax's API.
@@ -81,37 +79,28 @@ public final class SpoofaxTest {
 		return spoofax.syntaxService.parse(input);
 	}
 
-	private IStrategoTerm analyze(ISpoofaxParseUnit parseUnit) throws MetaborgException {
-		ITermFactory termFactory = spoofax.termFactoryService.getGeneric();
-		IStrategoTerm inputTuple = termFactory.makeList(
-				Arrays.asList(termFactory.makeAppl(
-						termFactory.makeConstructor("File", 3),
-						termFactory.makeString("null"),
-						parseUnit.ast(),
-						termFactory.makeReal(parseUnit.duration())
-				))
-		);
-		// analyzer inputTerm: [ File(sourceLoc(), ast_in, duration) ]
-
-		FacetContribution<AnalysisFacet> analysisContrib = lang.facetContribution(AnalysisFacet.class);
-		IStrategoTerm analyze;
+	private ISpoofaxAnalyzeUnit analyze(ISpoofaxParseUnit parseUnit) throws MetaborgException {
+		IAnalyzeResult<ISpoofaxAnalyzeUnit, ISpoofaxAnalyzeUnitUpdate> analyze;
 		try (IClosableLock lock = context.write()) {
-			HybridInterpreter analysisRuntime = spoofax.strategoRuntimeService.runtime(analysisContrib.contributor, context);
-			analyze = spoofax.strategoCommon.invoke(analysisRuntime, inputTuple, analysisContrib.facet.strategyName);
+			analyze = spoofax.analysisService.analyze(parseUnit, context);
 		}
-		return analyze;
+
+		return analyze.result();
 	}
 
-	public void run(String source) throws MetaborgException, IOException {
-		ISpoofaxParseUnit parseOut = this.parse(source);
-		IStrategoTerm analyzed = this.analyze(parseOut);
-
-		IStrategoTerm ast = analyzed.getSubterm(0).getSubterm(0).getSubterm(2);
-		
-		FacetContribution<StrategoRuntimeFacet> runContrib = lang.facetContribution(StrategoRuntimeFacet.class);
+	private IStrategoTerm interp(IStrategoTerm analyzeAst) throws MetaborgException {
+		FacetContribution<StrategoRuntimeFacet> runContrib = context.language().facetContribution(StrategoRuntimeFacet.class);
 		HybridInterpreter runtime = spoofax.strategoRuntimeService.runtime(runContrib.contributor, this.context);
-		stream(spoofax.strategoCommon.invoke(runtime, ast, "runstrat").spliterator(), false)
-			.map(e -> "direct interp: " + e.toString())
-			.forEach(System.out::println);
+		IStrategoTerm interp = spoofax.strategoCommon.invoke(runtime, analyzeAst, "runstrat");
+
+		return interp;
+	}
+
+	public IStrategoTerm run(String source) throws MetaborgException, IOException {
+		ISpoofaxParseUnit parseOut = this.parse(source);
+		ISpoofaxAnalyzeUnit analyzeResult = this.analyze(parseOut);
+		IStrategoTerm interpAst = this.interp(analyzeResult.ast());
+		
+		return interpAst;
 	}
 }

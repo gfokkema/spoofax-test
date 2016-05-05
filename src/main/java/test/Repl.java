@@ -61,7 +61,7 @@ public final class Repl {
 
             this.write(this.out, "I read: " + input + ". Handing to Spoofax...\n");
             try {
-                this.spoofax.run(input);
+                this.write(this.out, "Result: " + this.spoofax.run(input) + "\n");
             } catch (IOException | MetaborgException e) {
                 this.write(this.err, e.getMessage());
             }
