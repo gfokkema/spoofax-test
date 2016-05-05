@@ -184,7 +184,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>test.SpoofaxTest</mainClass>
+                            <mainClass>test.Repl</mainClass>
                         </manifest>
                     </archive>
                     <descriptorRefs>
