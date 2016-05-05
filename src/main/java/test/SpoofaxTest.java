@@ -11,6 +11,7 @@ import org.metaborg.core.language.LanguageUtils;
 import org.metaborg.core.project.IProject;
 import org.metaborg.core.project.ISimpleProjectService;
 import org.metaborg.core.project.SimpleProjectService;
+import org.metaborg.core.syntax.ParseException;
 import org.metaborg.spoofax.core.Spoofax;
 import org.metaborg.spoofax.core.analysis.AnalysisFacet;
 import org.metaborg.spoofax.core.stratego.StrategoRuntimeFacet;
@@ -31,74 +32,39 @@ import static java.util.stream.StreamSupport.stream;
  * Test class to play around with Spoofax's API.
  */
 public final class SpoofaxTest {
-	private static final String LANGPATH = "paplj.full";
-	private static final String PROJECTPATH
-            = "/home/jente/documents/universiteit/3/TI3806/declare-your-language/paplj/paplj-examples";
-
 	private Spoofax spoofax;
-	
-	public SpoofaxTest(Spoofax spoofax) {
+	private ILanguageImpl lang;
+	private IContext context;
+
+	public SpoofaxTest(Spoofax spoofax, String langPath, String projectPath) throws MetaborgException {
 		this.spoofax = spoofax;
+		this.lang = this.lang(langLoc(langPath));
+
+		IProject project = this.project(projectLoc(projectPath));
+		this.context = spoofax.contextService.get(projectLoc(projectPath), project, lang);
 	}
 	
-	private FileObject langLoc() {
-		FileObject zipLoc = spoofax.resourceService.resolve("res:" + LANGPATH);
+	private FileObject langLoc(String langPath) {
+		FileObject zipLoc = spoofax.resourceService.resolve("res:" + langPath);
 		return spoofax.resourceService.resolve("zip:" + zipLoc + "!/");
 	}
 
-	private FileObject projectLoc() {
-		return spoofax.resourceService.resolve(PROJECTPATH);
-	}
-
-	public void run(String source) throws MetaborgException, IOException {
-		IProject project = this.project(projectLoc());
-		ILanguageImpl lang = this.lang(langLoc());
-		IContext context = spoofax.contextService.get(projectLoc(), project, lang);
-
-		ISpoofaxInputUnit input = spoofax.unitService.inputUnit(source, lang, null);
-		ISpoofaxParseUnit parse_out = spoofax.syntaxService.parse(input);
-		// PARSING DONE
-		
-		ITermFactory termFactory = spoofax.termFactoryService.getGeneric();
-		IStrategoTerm inputTuple = termFactory.makeList(
-				Arrays.asList(termFactory.makeAppl(
-						termFactory.makeConstructor("File", 3),
-						termFactory.makeString("null"),
-						parse_out.ast(),
-						termFactory.makeReal(parse_out.duration())
-				))
-		);
-		// analyzer inputTerm: [ File(sourceLoc(), ast_in, duration) ]
-		
-		FacetContribution<AnalysisFacet> analysisContrib = lang.facetContribution(AnalysisFacet.class);
-		IStrategoTerm analyze;
-		try (IClosableLock lock = context.write()) {
-			HybridInterpreter analysisRuntime = spoofax.strategoRuntimeService.runtime(analysisContrib.contributor, context);
-			analyze = spoofax.strategoCommon.invoke(analysisRuntime, inputTuple, analysisContrib.facet.strategyName);
-		}
-		// ANALYSIS DONE
-
-		IStrategoTerm ast = analyze.getSubterm(0).getSubterm(0).getSubterm(2);
-		
-		FacetContribution<StrategoRuntimeFacet> runContrib = lang.facetContribution(StrategoRuntimeFacet.class);
-		HybridInterpreter runtime = spoofax.strategoRuntimeService.runtime(runContrib.contributor, projectLoc());
-		stream(spoofax.strategoCommon.invoke(runtime, ast, "runstrat").spliterator(), false)
-			.map(e -> "direct interp: " + e.toString())
-			.forEach(System.out::println);
+	private FileObject projectLoc(String projectPath) {
+		return spoofax.resourceService.resolve(projectPath);
 	}
 
 	private IProject project(FileObject projectLoc) throws MetaborgException {
 		ISimpleProjectService projectService =
-                spoofax.injector.getInstance(SimpleProjectService.class);
+				spoofax.injector.getInstance(SimpleProjectService.class);
 		return projectService.create(projectLoc);
 	}
-	
+
 	private ILanguageImpl lang(FileObject langLoc) throws MetaborgException {
 		// Discover languages inside zip file
 		Iterable<ILanguageDiscoveryRequest> requests =
-                spoofax.languageDiscoveryService.request(langLoc);
+				spoofax.languageDiscoveryService.request(langLoc);
 		Iterable<ILanguageComponent> components =
-                spoofax.languageDiscoveryService.discover(requests);
+				spoofax.languageDiscoveryService.discover(requests);
 
 		// Load the languages
 		Set<ILanguageImpl> impls = LanguageUtils.toImpls(components);
@@ -106,7 +72,46 @@ public final class SpoofaxTest {
 		if (lang == null) {
 			throw new MetaborgException("No language implementation was found");
 		}
-		
+
 		return lang;
+	}
+
+	private ISpoofaxParseUnit parse(String source) throws ParseException {
+		ISpoofaxInputUnit input = spoofax.unitService.inputUnit(source, lang, null);
+		return spoofax.syntaxService.parse(input);
+	}
+
+	private IStrategoTerm analyze(ISpoofaxParseUnit parseUnit) throws MetaborgException {
+		ITermFactory termFactory = spoofax.termFactoryService.getGeneric();
+		IStrategoTerm inputTuple = termFactory.makeList(
+				Arrays.asList(termFactory.makeAppl(
+						termFactory.makeConstructor("File", 3),
+						termFactory.makeString("null"),
+						parseUnit.ast(),
+						termFactory.makeReal(parseUnit.duration())
+				))
+		);
+		// analyzer inputTerm: [ File(sourceLoc(), ast_in, duration) ]
+
+		FacetContribution<AnalysisFacet> analysisContrib = lang.facetContribution(AnalysisFacet.class);
+		IStrategoTerm analyze;
+		try (IClosableLock lock = context.write()) {
+			HybridInterpreter analysisRuntime = spoofax.strategoRuntimeService.runtime(analysisContrib.contributor, context);
+			analyze = spoofax.strategoCommon.invoke(analysisRuntime, inputTuple, analysisContrib.facet.strategyName);
+		}
+		return analyze;
+	}
+
+	public void run(String source) throws MetaborgException, IOException {
+		ISpoofaxParseUnit parseOut = this.parse(source);
+		IStrategoTerm analyzed = this.analyze(parseOut);
+
+		IStrategoTerm ast = analyzed.getSubterm(0).getSubterm(0).getSubterm(2);
+		
+		FacetContribution<StrategoRuntimeFacet> runContrib = lang.facetContribution(StrategoRuntimeFacet.class);
+		HybridInterpreter runtime = spoofax.strategoRuntimeService.runtime(runContrib.contributor, this.context);
+		stream(spoofax.strategoCommon.invoke(runtime, ast, "runstrat").spliterator(), false)
+			.map(e -> "direct interp: " + e.toString())
+			.forEach(System.out::println);
 	}
 }
