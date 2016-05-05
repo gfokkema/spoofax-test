@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 
+
 import static org.fusesource.jansi.Ansi.ansi;
 
 import jline.console.ConsoleReader;
@@ -15,10 +16,6 @@ import jline.console.ConsoleReader;
  */
 public class TerminalEditor implements Editor {
 	ConsoleReader reader;
-	public static final String KEY_LF = "\r";
-	public static final String KEY_ENTER = "\n";
-	public static final String KEY_UP = "\033[A";
-	public static final String KEY_DOWN = "\033[B";
 	String prompt;
 	String continuationPrompt;
 	ArrayList<String> lines;
@@ -37,7 +34,7 @@ public class TerminalEditor implements Editor {
 		lines = new ArrayList<>();
 	}
 	
-	private void saveLine(String lastLine) {
+	protected void saveLine(String lastLine) {
 		lines.add(lastLine);
 	}
 
@@ -57,7 +54,7 @@ public class TerminalEditor implements Editor {
 		String lastLine;
 		reader.setPrompt(prompt);
 		// While the input is not empty, keep asking.
-		while ((lastLine = reader.readLine()).trim().length() > 0) {
+		while ((lastLine = reader.readLine()) != null && lastLine.trim().length() > 0) {
 			reader.flush();
 			reader.setPrompt(continuationPrompt);
 			saveLine(lastLine);
