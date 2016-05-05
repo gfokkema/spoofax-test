@@ -28,7 +28,7 @@ import java.util.Set;
  * Test class to play around with Spoofax's API.
  */
 public final class SpoofaxTest {
-	private Spoofax spoofax;
+	public Spoofax spoofax;
 	private ILanguageImpl lang;
 	private IContext context;
 
