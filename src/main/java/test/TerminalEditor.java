@@ -23,7 +23,7 @@ public class TerminalEditor implements Editor {
 	String continuationPrompt;
 	ArrayList<String> lines;
 
-	private TerminalEditor() throws IOException {
+	public TerminalEditor() throws IOException {
 		this(System.in, System.out);
 	}
 
