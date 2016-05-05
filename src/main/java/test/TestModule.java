@@ -14,14 +14,14 @@ public class TestModule extends SpoofaxModule {
 	protected void configure() {
 		super.configure();
 	}
-	
+
 	@Override
 	protected void bindProject() {
-        bind(SimpleProjectService.class).in(Singleton.class);
-        bind(ISimpleProjectService.class).to(SimpleProjectService.class);
-        bind(IProjectService.class).to(SimpleProjectService.class);
+		bind(SimpleProjectService.class).in(Singleton.class);
+		bind(ISimpleProjectService.class).to(SimpleProjectService.class);
+		bind(IProjectService.class).to(SimpleProjectService.class);
 	}
-	
+
 	@Override
 	protected void bindEditor() {
 		bind(IEditorRegistry.class).to(NullEditorRegistry.class).in(Singleton.class);

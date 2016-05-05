@@ -1,11 +1,5 @@
 package test;
 
-import static java.util.stream.StreamSupport.stream;
-
-import java.io.IOException;
-import java.util.Arrays;
-import java.util.Set;
-
 import org.apache.commons.vfs2.FileObject;
 import org.metaborg.core.MetaborgException;
 import org.metaborg.core.context.IContext;
@@ -27,12 +21,20 @@ import org.spoofax.interpreter.terms.IStrategoTerm;
 import org.spoofax.interpreter.terms.ITermFactory;
 import org.strategoxt.HybridInterpreter;
 
-public class SpoofaxTest {
-//	final static String langPath = "org.metaborg.meta.lang.nabl-2.0.0-beta1.spoofax-language";
-//	final static String sourcePath = "test.nabl";
-	final static String langPath = "paplj.full";
-	final static String projectPath = "/home/gerlof/spoofax-workspace/temp/";
-	
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.Set;
+
+import static java.util.stream.StreamSupport.stream;
+
+/**
+ * Test class to play around with Spoofax's API.
+ */
+public final class SpoofaxTest {
+	private static final String LANGPATH = "paplj.full";
+	private static final String PROJECTPATH
+            = "/home/jente/documents/universiteit/3/TI3806/declare-your-language/paplj/paplj-examples";
+
 	private Spoofax spoofax;
 	
 	public SpoofaxTest(Spoofax spoofax) {
@@ -40,29 +42,20 @@ public class SpoofaxTest {
 	}
 	
 	private FileObject langLoc() {
-		FileObject zipLoc = spoofax.resourceService.resolve("res:" + langPath);
+		FileObject zipLoc = spoofax.resourceService.resolve("res:" + LANGPATH);
 		return spoofax.resourceService.resolve("zip:" + zipLoc + "!/");
 	}
-	
+
 	private FileObject projectLoc() {
-		return spoofax.resourceService.resolve(projectPath);
+		return spoofax.resourceService.resolve(PROJECTPATH);
 	}
-	
-	public void run() throws MetaborgException, IOException {
+
+	public void run(String source) throws MetaborgException, IOException {
 		IProject project = this.project(projectLoc());
 		ILanguageImpl lang = this.lang(langLoc());
 		IContext context = spoofax.contextService.get(projectLoc(), project, lang);
-		
-		String program = String.join("\n",
-				"program",
-				"run",
-				"let",
-				"  Num x = 0",
-				"in {",
-				"   x + 2;",
-				"   x + 4",
-				"}");
-		ISpoofaxInputUnit input = spoofax.unitService.inputUnit(program, lang, null);
+
+		ISpoofaxInputUnit input = spoofax.unitService.inputUnit(source, lang, null);
 		ISpoofaxParseUnit parse_out = spoofax.syntaxService.parse(input);
 		// PARSING DONE
 		
@@ -84,7 +77,7 @@ public class SpoofaxTest {
 			analyze = spoofax.strategoCommon.invoke(analysisRuntime, inputTuple, analysisContrib.facet.strategyName);
 		}
 		// ANALYSIS DONE
-		
+
 		IStrategoTerm ast = analyze.getSubterm(0).getSubterm(0).getSubterm(2);
 		
 		FacetContribution<StrategoRuntimeFacet> runContrib = lang.facetContribution(StrategoRuntimeFacet.class);
@@ -93,32 +86,27 @@ public class SpoofaxTest {
 			.map(e -> "direct interp: " + e.toString())
 			.forEach(System.out::println);
 	}
-	
-	public IProject project(FileObject projectLoc) throws MetaborgException {
-		ISimpleProjectService projectService = spoofax.injector.getInstance(SimpleProjectService.class);
-		IProject project = projectService.create(projectLoc);
-		
-		return project;
+
+	private IProject project(FileObject projectLoc) throws MetaborgException {
+		ISimpleProjectService projectService =
+                spoofax.injector.getInstance(SimpleProjectService.class);
+		return projectService.create(projectLoc);
 	}
 	
-	public ILanguageImpl lang(FileObject langLoc) throws MetaborgException {
+	private ILanguageImpl lang(FileObject langLoc) throws MetaborgException {
 		// Discover languages inside zip file
-		Iterable<ILanguageDiscoveryRequest> requests = spoofax.languageDiscoveryService.request(langLoc);
-		Iterable<ILanguageComponent> components = spoofax.languageDiscoveryService.discover(requests);
+		Iterable<ILanguageDiscoveryRequest> requests =
+                spoofax.languageDiscoveryService.request(langLoc);
+		Iterable<ILanguageComponent> components =
+                spoofax.languageDiscoveryService.discover(requests);
 
 		// Load the languages
 		Set<ILanguageImpl> impls = LanguageUtils.toImpls(components);
 		ILanguageImpl lang = LanguageUtils.active(impls);
-		if(lang == null) throw new MetaborgException("No language implementation was found");
+		if (lang == null) {
+			throw new MetaborgException("No language implementation was found");
+		}
 		
 		return lang;
-	}
-	
-	public static void main(String[] args) {
-		try(Spoofax spoofax = new Spoofax()) {
-			new SpoofaxTest(spoofax).run();
-		} catch (IOException | MetaborgException e) {
-			e.printStackTrace();
-		}
 	}
 }
