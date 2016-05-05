@@ -63,7 +63,7 @@ public class TerminalEditor implements Editor {
 			saveLine(lastLine);
 		}
 		// Concat the strings with newlines inbetween
-		input = lines.stream().reduce("", (left, right) -> left + right + "\n");
+		input = lines.stream().reduce((left, right) -> left + "\n" + right).orElse("");
 		// Clear the lines for next input.
 		lines.clear();
 		return input;
