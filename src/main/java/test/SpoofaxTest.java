@@ -1,17 +1,15 @@
 package test;
 
+import static java.util.stream.StreamSupport.stream;
+
 import java.io.IOException;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 
 import org.apache.commons.vfs2.FileObject;
 import org.metaborg.core.MetaborgException;
-import org.metaborg.core.action.EndNamedGoal;
 import org.metaborg.core.context.IContext;
+import org.metaborg.core.language.FacetContribution;
 import org.metaborg.core.language.ILanguageComponent;
 import org.metaborg.core.language.ILanguageDiscoveryRequest;
 import org.metaborg.core.language.ILanguageImpl;
@@ -19,20 +17,20 @@ import org.metaborg.core.language.LanguageUtils;
 import org.metaborg.core.project.IProject;
 import org.metaborg.core.project.ISimpleProjectService;
 import org.metaborg.core.project.SimpleProjectService;
-import org.metaborg.core.transform.TransformException;
 import org.metaborg.spoofax.core.Spoofax;
-import org.metaborg.spoofax.core.action.ActionFacet;
-import org.metaborg.spoofax.core.unit.ISpoofaxAnalyzeUnit;
+import org.metaborg.spoofax.core.analysis.AnalysisFacet;
+import org.metaborg.spoofax.core.stratego.StrategoRuntimeFacet;
 import org.metaborg.spoofax.core.unit.ISpoofaxInputUnit;
 import org.metaborg.spoofax.core.unit.ISpoofaxParseUnit;
-import org.metaborg.spoofax.core.unit.ISpoofaxTransformUnit;
 import org.metaborg.util.concurrent.IClosableLock;
+import org.spoofax.interpreter.terms.IStrategoTerm;
+import org.spoofax.interpreter.terms.ITermFactory;
+import org.strategoxt.HybridInterpreter;
 
 public class SpoofaxTest {
 //	final static String langPath = "org.metaborg.meta.lang.nabl-2.0.0-beta1.spoofax-language";
 //	final static String sourcePath = "test.nabl";
 	final static String langPath = "paplj.full";
-	final static String sourcePath = "/home/gerlof/spoofax-workspace/temp/fib.pj";
 	final static String projectPath = "/home/gerlof/spoofax-workspace/temp/";
 	
 	private Spoofax spoofax;
@@ -46,10 +44,6 @@ public class SpoofaxTest {
 		return spoofax.resourceService.resolve("zip:" + zipLoc + "!/");
 	}
 	
-	private FileObject sourceLoc() {
-		return spoofax.resourceService.resolve("file:" + sourcePath);
-	}
-	
 	private FileObject projectLoc() {
 		return spoofax.resourceService.resolve(projectPath);
 	}
@@ -59,15 +53,43 @@ public class SpoofaxTest {
 		ILanguageImpl lang = this.lang(langLoc());
 		IContext context = spoofax.contextService.get(projectLoc(), project, lang);
 		
-		ISpoofaxParseUnit parse_out = this.parse(lang, sourceLoc());
-		ISpoofaxAnalyzeUnit analyze;
-		try(IClosableLock lock = context.write()) {
-			analyze = spoofax.analysisService.analyze(parse_out, context).result();
-		}
-		// AST has been parsed and analyzed
+		String program = String.join("\n",
+				"program",
+				"run",
+				"let",
+				"  Num x = 0",
+				"in {",
+				"   x + 2;",
+				"   x + 4",
+				"}");
+		ISpoofaxInputUnit input = spoofax.unitService.inputUnit(program, lang, null);
+		ISpoofaxParseUnit parse_out = spoofax.syntaxService.parse(input);
+		// PARSING DONE
 		
-		StreamSupport.stream(spoofax.strategoCommon
-				.invoke(lang, context, analyze.ast(), "runprogram").spliterator(), false)
+		ITermFactory termFactory = spoofax.termFactoryService.getGeneric();
+		IStrategoTerm inputTuple = termFactory.makeList(
+				Arrays.asList(termFactory.makeAppl(
+						termFactory.makeConstructor("File", 3),
+						termFactory.makeString("null"),
+						parse_out.ast(),
+						termFactory.makeReal(parse_out.duration())
+				))
+		);
+		// analyzer inputTerm: [ File(sourceLoc(), ast_in, duration) ]
+		
+		FacetContribution<AnalysisFacet> analysisContrib = lang.facetContribution(AnalysisFacet.class);
+		IStrategoTerm analyze;
+		try (IClosableLock lock = context.write()) {
+			HybridInterpreter analysisRuntime = spoofax.strategoRuntimeService.runtime(analysisContrib.contributor, context);
+			analyze = spoofax.strategoCommon.invoke(analysisRuntime, inputTuple, analysisContrib.facet.strategyName);
+		}
+		// ANALYSIS DONE
+		
+		IStrategoTerm ast = analyze.getSubterm(0).getSubterm(0).getSubterm(2);
+		
+		FacetContribution<StrategoRuntimeFacet> runContrib = lang.facetContribution(StrategoRuntimeFacet.class);
+		HybridInterpreter runtime = spoofax.strategoRuntimeService.runtime(runContrib.contributor, projectLoc());
+		stream(spoofax.strategoCommon.invoke(runtime, ast, "runprogram").spliterator(), false)
 			.map(e -> "direct interp: " + e.toString())
 			.forEach(System.out::println);
 	}
@@ -90,18 +112,6 @@ public class SpoofaxTest {
 		if(lang == null) throw new MetaborgException("No language implementation was found");
 		
 		return lang;
-	}
-	
-	public ISpoofaxParseUnit parse(ILanguageImpl lang, FileObject sourceFile) throws IOException, MetaborgException {
-		// Load a file in this language
-		String sourceContents    = spoofax.sourceTextService.text(sourceFile);
-		ISpoofaxInputUnit input  = spoofax.unitService.inputUnit(sourceFile, sourceContents, lang, null);
-		
-		// Parse it using Spoofax
-		ISpoofaxParseUnit output = spoofax.syntaxService.parse(input);
-		if(!output.valid()) throw new MetaborgException("Could not parse " + sourceFile);
-		
-		return output;
 	}
 	
 	public static void main(String[] args) {
