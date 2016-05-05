@@ -89,7 +89,7 @@ public class SpoofaxTest {
 		
 		FacetContribution<StrategoRuntimeFacet> runContrib = lang.facetContribution(StrategoRuntimeFacet.class);
 		HybridInterpreter runtime = spoofax.strategoRuntimeService.runtime(runContrib.contributor, projectLoc());
-		stream(spoofax.strategoCommon.invoke(runtime, ast, "runprogram").spliterator(), false)
+		stream(spoofax.strategoCommon.invoke(runtime, ast, "runstrat").spliterator(), false)
 			.map(e -> "direct interp: " + e.toString())
 			.forEach(System.out::println);
 	}
