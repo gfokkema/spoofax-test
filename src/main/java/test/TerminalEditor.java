@@ -71,8 +71,10 @@ public class TerminalEditor implements Editor {
 
 	public static void main(String[] args) throws IOException {
 		System.out.println(ansi().a("Welcome to the ").bold().a("Spoofax").reset().a(" REPL"));
+		String input = "";
 		Editor ed = new TerminalEditor(); 
-		String input = ed.getInput();
-		System.out.println("User typed in \"" + input + '"');
+		while (!(input = ed.getInput()).trim().equals("exit")) {
+			System.out.println("User typed in \"" + input + '"');
+		}
 	}
 }
