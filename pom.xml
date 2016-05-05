@@ -17,6 +17,16 @@
       <artifactId>logback-classic</artifactId>
       <version>1.1.2</version>
     </dependency>
+    <dependency>
+      <groupId>jline</groupId>
+      <artifactId>jline</artifactId>
+      <version>2.12</version>
+    </dependency>
+    <dependency>
+	  <groupId>org.fusesource.jansi</groupId>
+	  <artifactId>jansi</artifactId>
+	  <version>1.12</version>
+    </dependency>
   </dependencies>
 
   <build>
@@ -34,7 +44,7 @@
         <configuration>
           <archive>
             <manifest>
-              <mainClass>test.SpoofaxTest</mainClass>
+              <mainClass>test.TerminalEditor</mainClass>
             </manifest>
           </archive>
           <descriptorRefs>
